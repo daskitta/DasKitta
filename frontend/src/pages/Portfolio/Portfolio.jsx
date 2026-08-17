@@ -4,6 +4,7 @@ import { getPortfolioApi } from "../../api/accounts";
 import { useAccount } from "../../context/AccountContext";
 import Layout from "../../components/Layout/Layout.jsx";
 import AccountSwitcher from "../../components/AccountSwitcher/AccountSwitcher.jsx";
+import SEO from "../../seo/SEO.jsx";
 import {
     IconBriefcase,
     IconTrendUp,
@@ -114,8 +115,8 @@ const Portfolio = () => {
         if (sortKey !== col) return <span className="sort-icon sort-icon-idle" />;
         return (
             <span className={`sort-icon ${sortAsc ? "sort-asc" : "sort-desc"}`}>
-        {sortAsc ? <IconArrowUp /> : <IconArrowDown />}
-      </span>
+                {sortAsc ? <IconArrowUp /> : <IconArrowDown />}
+            </span>
         );
     };
 
@@ -132,6 +133,12 @@ const Portfolio = () => {
 
     return (
         <Layout>
+            <SEO
+                title="Portfolio"
+                description="View your NEPSE demat holdings, current stock values, and portfolio performance across your Meroshare accounts."
+                canonical="/portfolio"
+                noindex={true}
+            />
             <div className="portfolio-page">
                 <div className="portfolio-header">
                     <div>
@@ -150,9 +157,9 @@ const Portfolio = () => {
                             disabled={portfolioLoading}
                             aria-label="Refresh portfolio"
                         >
-              <span className={portfolioLoading ? "spin" : ""}>
-                <IconRefresh />
-              </span>
+                            <span className={portfolioLoading ? "spin" : ""}>
+                                <IconRefresh />
+                            </span>
                             Refresh
                         </button>
                     )}
@@ -254,8 +261,10 @@ const Portfolio = () => {
                                                             className="th-btn"
                                                             onClick={() => handleSort(col.key)}
                                                         >
-                                                            {col.label}
-                                                            <SortIcon col={col.key} />
+                                                                <span className="th-inner">
+                                                                    {col.label}
+                                                                    <SortIcon col={col.key} />
+                                                                </span>
                                                         </button>
                                                     </th>
                                                 ))}
@@ -277,9 +286,9 @@ const Portfolio = () => {
                                                             <span className="cell-mono">{fmtUnits(item.currentBalance)}</span>
                                                         </td>
                                                         <td className="col-right">
-                                <span className={`cell-mono ltp-val ${gc}`}>
-                                  {fmt(item.lastTransactionPrice)}
-                                </span>
+                                                                <span className={`cell-mono ltp-val ${gc}`}>
+                                                                    {fmt(item.lastTransactionPrice)}
+                                                                </span>
                                                         </td>
                                                         <td className="col-right">
                                                             <span className="cell-mono col-dim">{fmt(item.previousClosingPrice)}</span>
