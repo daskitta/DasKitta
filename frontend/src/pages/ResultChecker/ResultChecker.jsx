@@ -1,14 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  checkResultApi,
-  checkResultGuestApi,
-  getPublicShareListApi,
-  getAppliedCompaniesApi,
+    checkResultStreamApi,
+    getAppliedCompaniesApi,
 } from "../../api/ipo";
 import { useAuth } from "../../context/AuthContext";
 import Layout from "../../components/Layout/Layout.jsx";
-import { InfoIcon, SpinnerIcon, WarnIcon } from "../../components/Icons";
+import { SpinnerIcon, WarnIcon } from "../../components/Icons";
 import toast from "react-hot-toast";
 import SEO from "../../seo/SEO.jsx";
 import { RESULT_CHECKER_JSONLD } from "../../seo/jsonLd.js";
@@ -21,326 +19,310 @@ const getIpoName = (ipo) =>
     ipo?.companyName || ipo?.name || `Share #${resolveShareId(ipo)}`;
 
 const ResultChecker = () => {
-  const { user } = useAuth();
-  const [shareId, setShareId] = useState("");
-  const [boid, setBoid] = useState("");
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const [ipoList, setIpoList] = useState([]);
-  const [ipoListLoading, setIpoListLoading] = useState(true);
-  const [ipoListError, setIpoListError] = useState(false);
+    const { user } = useAuth();
+    const [shareId, setShareId] = useState("");
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [checked, setChecked] = useState(false);
+    const [ipoList, setIpoList] = useState([]);
+    const [ipoListLoading, setIpoListLoading] = useState(true);
+    const [ipoListError, setIpoListError] = useState(false);
+    const nextKeyRef = useRef(0);
 
-  const fetchIpoList = useCallback(async () => {
-    setIpoListLoading(true);
-    setIpoListError(false);
-    setShareId("");
-    try {
-      const res = user
-          ? await getAppliedCompaniesApi()
-          : await getPublicShareListApi();
+    const fetchIpoList = useCallback(async () => {
+        if (!user) {
+            setIpoListLoading(false);
+            return;
+        }
+        setIpoListLoading(true);
+        setIpoListError(false);
+        setShareId("");
+        try {
+            const res = await getAppliedCompaniesApi();
+            const shares = Array.isArray(res?.data) ? res.data : [];
+            setIpoList(shares);
+            if (shares.length > 0) {
+                setShareId(resolveShareId(shares[0]));
+            }
+        } catch {
+            setIpoListError(true);
+            toast.error("Failed to load IPO list");
+        } finally {
+            setIpoListLoading(false);
+        }
+    }, [user]);
 
-      const shares = Array.isArray(res?.data) ? res.data : [];
-      setIpoList(shares);
-      if (shares.length > 0) {
-        setShareId(resolveShareId(shares[0]));
-      }
-    } catch {
-      setIpoListError(true);
-      toast.error("Failed to load IPO list. Try refreshing.");
-    } finally {
-      setIpoListLoading(false);
-    }
-  }, [user]);
+    useEffect(() => {
+        fetchIpoList();
+    }, [fetchIpoList]);
 
-  useEffect(() => {
-    fetchIpoList();
-  }, [fetchIpoList]);
+    const runCheck = async (targetShareId) => {
+        setLoading(true);
+        setResults([]);
+        setChecked(true);
+        nextKeyRef.current = 0;
 
-  const handleCheck = async (e) => {
-    e.preventDefault();
-    if (!shareId.trim()) {
-      toast.error("Select an IPO");
-      return;
-    }
-    if (!user && !boid.trim()) {
-      toast.error("Enter your BOID");
-      return;
-    }
-    if (!user && boid.trim().length !== 16) {
-      toast.error("BOID must be exactly 16 digits");
-      return;
-    }
-
-    setLoading(true);
-    setResults([]);
-    setChecked(false);
-
-    try {
-      const res = user
-          ? await checkResultApi(shareId)
-          : await checkResultGuestApi(shareId, boid.trim());
-
-      const data = Array.isArray(res?.data) ? res.data : [];
-      setResults(data);
-      setChecked(true);
-
-      if (!data.length) {
-        toast("No results found. The result may not be published yet.");
-      } else if (data.every((r) => r.resultStatus === "UNKNOWN")) {
-        toast.error(
-            "Could not fetch results — CDSC may be blocking automated checks."
+        await checkResultStreamApi(
+            targetShareId,
+            (result) => {
+                nextKeyRef.current += 1;
+                setResults((prev) => [...prev, { ...result, resultKey: nextKeyRef.current }]);
+            },
+            () => setLoading(false),
+            (err) => {
+                toast.error(err.message || "Failed to check result");
+                setLoading(false);
+            }
         );
-      }
-    } catch (err) {
-      toast.error(
-          err.response?.data?.message || err.message || "Failed to check result"
-      );
-      setChecked(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  const selectedIpo = ipoList.find((ipo) => resolveShareId(ipo) === shareId);
-  const formDisabled = ipoListLoading || ipoListError || !ipoList.length;
+    const handleCheck = (e) => {
+        e.preventDefault();
+        if (!shareId.trim()) {
+            toast.error("Select an IPO");
+            return;
+        }
+        runCheck(shareId);
+    };
 
-  return (
-      <Layout>
-        <SEO
-            title="IPO Result Checker"
-            description="Check your NEPSE IPO allotment result instantly. Enter your BOID and select the IPO company to find out if you were allotted shares — no login required."
-            canonical="/ipo/result"
-            jsonLd={RESULT_CHECKER_JSONLD}
-        />
-        <div className="page">
-          <h1 className="page-title">IPO result checker</h1>
-          <p className="page-subtitle">
-            {user
-                ? "Check results for all your Meroshare accounts at once."
-                : "Check your IPO result without signing in."}
-          </p>
+    const selectedIpo = ipoList.find((ipo) => resolveShareId(ipo) === shareId);
+    const formDisabled = ipoListLoading || ipoListError || !ipoList.length;
 
-          <div className="result-layout">
-            <div className="card result-form anim-fade-up">
-              <p className="result-card-title">Check result</p>
-              <form onSubmit={handleCheck}>
-                <div className="form-group">
-                  <label className="form-label" htmlFor="ipo-select">
-                    IPO / Share
-                  </label>
-                  {ipoListError ? (
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 13, color: "var(--danger)" }}>
-                      Failed to load.
+    const allottedCount = results.filter((r) => r.resultStatus === "ALLOTTED").length;
+    const totalKitta = results.reduce((acc, curr) => acc + (Number(curr.allottedKitta) || 0), 0);
+
+    const handleCopySummary = () => {
+        if (!results.length) return;
+        const company = selectedIpo ? getIpoName(selectedIpo) : "IPO";
+        const lines = results.map((r) => {
+            const name = r.accountFullName || r.accountUsername || "Account";
+            if (r.resultStatus === "ALLOTTED") {
+                return `• ${name}: ${r.allottedKitta || 0} Kitta 🎉`;
+            }
+            if (r.resultStatus === "NOT_ALLOTTED") {
+                return `• ${name}: Not Allotted`;
+            }
+            return `• ${name}: Pending/Check manually`;
+        });
+        const text = `${company} Results:\n` + lines.join("\n");
+        navigator.clipboard.writeText(text);
+        toast.success("Summary copied");
+    };
+
+    return (
+        <Layout>
+            <SEO
+                title="IPO Result Checker"
+                description="Check your NEPSE IPO allotment result instantly across all your Meroshare accounts."
+                canonical="/ipo/result"
+                jsonLd={RESULT_CHECKER_JSONLD}
+            />
+            <div className="page">
+                <h1 className="page-title">IPO result checker</h1>
+                <p className="page-subtitle">
+                    Check allotment across all your accounts in real-time.
+                </p>
+
+                <div className="result-layout">
+                    <div className="card result-form">
+                        <p className="result-card-title">Check result</p>
+
+                        {!user ? (
+                            <div className="login-cta">
+                                Sign in to check your IPO results.{" "}
+                                <Link to="/login">Log in</Link> or{" "}
+                                <Link to="/register">sign up</Link>.
+                            </div>
+                        ) : (
+                            <form onSubmit={handleCheck}>
+                                <div className="form-group">
+                                    <label className="form-label" htmlFor="ipo-select">
+                                        Select IPO
+                                    </label>
+                                    {ipoListError ? (
+                                        <div className="form-error-fallback">
+                                            <span>Failed to load IPOs</span>
+                                            <button
+                                                type="button"
+                                                className="btn-retry-inline"
+                                                onClick={fetchIpoList}
+                                            >
+                                                Retry
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <select
+                                            id="ipo-select"
+                                            className="input"
+                                            value={shareId}
+                                            onChange={(e) => setShareId(e.target.value)}
+                                            required
+                                            disabled={ipoListLoading || loading}
+                                        >
+                                            <option value="">
+                                                {ipoListLoading
+                                                    ? "Loading IPOs..."
+                                                    : !ipoList.length
+                                                        ? "No published results"
+                                                        : "Select company"}
+                                            </option>
+                                            {ipoList.map((ipo) => {
+                                                const id = resolveShareId(ipo);
+                                                return (
+                                                    <option key={id} value={id}>
+                                                        {getIpoName(ipo)}
+                                                        {ipo.scrip ? ` (${ipo.scrip})` : ""}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+                                    )}
+                                </div>
+
+                                {loading && (
+                                    <div className="stream-progress">
+                                        <div className="progress-track">
+                                            <div
+                                                className="progress-fill"
+                                                style={{
+                                                    width: `${Math.min((results.length / 5) * 100, 95)}%`,
+                                                }}
+                                            />
+                                        </div>
+                                        <span className="progress-text">
+                      Checking accounts ({results.length})...
                     </span>
-                        <button
-                            type="button"
-                            onClick={fetchIpoList}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "var(--accent)",
-                              cursor: "pointer",
-                              fontSize: 13,
-                              padding: 0,
-                            }}
-                        >
-                          Retry
-                        </button>
-                      </div>
-                  ) : (
-                      <select
-                          id="ipo-select"
-                          className="input"
-                          value={shareId}
-                          onChange={(e) => setShareId(e.target.value)}
-                          required
-                          disabled={ipoListLoading}
-                      >
-                        <option value="">
-                          {ipoListLoading
-                              ? "Loading IPOs..."
-                              : !ipoList.length
-                                  ? "No results published yet"
-                                  : "Select an IPO"}
-                        </option>
-                        {ipoList.map((ipo) => {
-                          const id = resolveShareId(ipo);
-                          return (
-                              <option key={id} value={id}>
-                                {getIpoName(ipo)}
-                                {ipo.scrip ? ` (${ipo.scrip})` : ""}
-                              </option>
-                          );
-                        })}
-                      </select>
-                  )}
-                  {selectedIpo && (
-                      <span className="form-hint">
-                    Share ID: {resolveShareId(selectedIpo)}
-                        {selectedIpo.scrip ? ` — ${selectedIpo.scrip}` : ""}
-                  </span>
-                  )}
-                </div>
+                                    </div>
+                                )}
 
-                {!user && (
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="boid-input">
-                        Your BOID
-                      </label>
-                      <input
-                          id="boid-input"
-                          className="input"
-                          type="text"
-                          inputMode="numeric"
-                          value={boid}
-                          onChange={(e) =>
-                              setBoid(e.target.value.replace(/\D/g, "").slice(0, 16))
-                          }
-                          placeholder="16-digit BOID number"
-                          maxLength={16}
-                          required
-                      />
-                      <span className="form-hint">
-                    16-digit BOID from your Meroshare profile
-                        {boid.length > 0 && boid.length < 16 && (
-                            <span
-                                style={{ color: "var(--danger)", marginLeft: 6 }}
-                            >
-                        ({16 - boid.length} more)
-                      </span>
+                                <button
+                                    type="submit"
+                                    className="btn btn-primary btn-full"
+                                    disabled={loading || formDisabled}
+                                >
+                                    {loading ? (
+                                        <>
+                                            <SpinnerIcon /> Checking...
+                                        </>
+                                    ) : (
+                                        "Check results"
+                                    )}
+                                </button>
+                            </form>
                         )}
-                  </span>
                     </div>
-                )}
 
-                {user && (
-                    <div className="accounts-note">
-                      <InfoIcon />
-                      <span>
-                    Results will be checked for all your saved Meroshare
-                    accounts.
+                    {checked && (
+                        <div className="results-out">
+                            {results.length > 0 && (
+                                <div className="results-header">
+                  <span className="summary-badge">
+                    {allottedCount > 0
+                        ? `${allottedCount} Allotted (${totalKitta} Kitta)`
+                        : `${results.length} Checked`}
                   </span>
-                    </div>
-                )}
+                                    <button
+                                        type="button"
+                                        className="btn-copy"
+                                        onClick={handleCopySummary}
+                                    >
+                                        Copy summary
+                                    </button>
+                                </div>
+                            )}
 
-                <button
-                    type="submit"
-                    className="btn btn-primary btn-full"
-                    style={{ padding: "10px" }}
-                    disabled={loading || formDisabled}
-                >
-                  {loading ? (
-                      <>
-                        <SpinnerIcon /> Checking
-                      </>
-                  ) : (
-                      "Check result"
-                  )}
-                </button>
-              </form>
+                            {!results.length && !loading && (
+                                <div className="card empty-card">
+                                    <p>No results found for this selection.</p>
+                                    <a
+                                        href="https://iporesult.cdsc.com.np"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="btn-cdsc"
+                                    >
+                                        Check on CDSC Portal &rarr;
+                                    </a>
+                                </div>
+                            )}
 
-              {!user && (
-                  <div className="login-cta">
-                    Have multiple accounts?{" "}
-                    <Link to="/register">Sign up free</Link> to check all at once.
-                  </div>
-              )}
-            </div>
-
-            {checked && (
-                <div className="results-out">
-                  {!results.length ? (
-                      <div className="card empty-state">
-                        <p>
-                          No results found. The IPO result may not be published yet.
-                        </p>
-                      </div>
-                  ) : (
-                      results.map((r, i) => (
-                          <ResultCard
-                              key={r.id || r.shareId || i}
-                              result={r}
-                              style={{ animationDelay: `${i * 0.07}s` }}
-                          />
-                      ))
-                  )}
+                            {results.map((r) => (
+                                <ResultCard
+                                    key={r.resultKey}
+                                    result={r}
+                                    onRetryAccount={() => runCheck(shareId)}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </div>
-            )}
-          </div>
-        </div>
-      </Layout>
-  );
+            </div>
+        </Layout>
+    );
 };
 
-const ResultCard = ({ result: r, style }) => {
-  const isAllotted = r.resultStatus === "ALLOTTED";
-  const isNotAllotted = r.resultStatus === "NOT_ALLOTTED";
-  const isUnknown = r.resultStatus === "UNKNOWN";
+const ResultCard = ({ result: r, onRetryAccount }) => {
+    const isAllotted = r.resultStatus === "ALLOTTED";
+    const isNotAllotted = r.resultStatus === "NOT_ALLOTTED";
+    const isUnknown = r.resultStatus === "UNKNOWN";
 
-  const badgeClass = isAllotted
-      ? "badge-success"
-      : isNotAllotted
-          ? "badge-danger"
-          : isUnknown
-              ? "badge-muted"
-              : "badge-warning";
+    const statusLabel = isAllotted
+        ? "Allotted"
+        : isNotAllotted
+            ? "Not Allotted"
+            : "Pending";
 
-  const formattedDate = r.resultCheckedAt
-      ? new Date(r.resultCheckedAt).toLocaleString("en-NP", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-      : null;
+    const badgeClass = isAllotted
+        ? "badge-success"
+        : isNotAllotted
+            ? "badge-muted"
+            : "badge-warning";
 
-  return (
-      <div className="card res-card anim-fade-up" style={style}>
-        <div className="res-head">
-          <div>
-            <p className="res-name">{r.accountFullName || r.accountUsername}</p>
-            <p className="res-share">
-              {r.companyName || `Share ID: ${r.shareId}`}
-            </p>
-          </div>
-          <span className={`badge ${badgeClass}`}>
-          {r.resultStatus ? r.resultStatus.replace(/_/g, " ") : "UNKNOWN"}
-        </span>
-        </div>
+    const cardVariantClass = isAllotted
+        ? "res-card-allotted"
+        : isNotAllotted
+            ? "res-card-muted"
+            : "";
 
-        {isAllotted && r.allottedKitta > 0 && (
-            <div className="allotted-row">
-              <p className="allotted-lbl">Allotted kitta</p>
-              <p className="allotted-num">{r.allottedKitta}</p>
+    return (
+        <div className={`card res-card ${cardVariantClass}`}>
+            <div className="res-head">
+                <div>
+                    <p className="res-name">{r.accountFullName || r.accountUsername}</p>
+                    <p className="res-share">{r.companyName || "Meroshare Account"}</p>
+                </div>
+                <span className={`badge ${badgeClass}`}>{statusLabel}</span>
             </div>
-        )}
 
-        {isUnknown && (
-            <div className="warn-box">
-              <WarnIcon />
-              <span>
-            {r.statusMessage || (
-                <>
-                  Result could not be determined. The IPO result may not be
-                  published yet, or CDSC may be blocking automated checks. Try{" "}
-                  <a
-                      href="https://iporesult.cdsc.com.np"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                  >
-                    iporesult.cdsc.com.np
-                  </a>
-                </>
+            {isAllotted && r.allottedKitta > 0 && (
+                <div className="allotted-row">
+                    <span className="allotted-lbl">Allotted kitta</span>
+                    <span className="allotted-num">{r.allottedKitta}</span>
+                </div>
             )}
-          </span>
-            </div>
-        )}
 
-        {formattedDate && (
-            <p className="res-time">Checked at {formattedDate}</p>
-        )}
-      </div>
-  );
+            {isUnknown && (
+                <div className="warn-box">
+                    <WarnIcon />
+                    <div>
+            <span>
+              {r.statusMessage || "Could not fetch automatically."}
+            </span>
+                        {onRetryAccount && (
+                            <div>
+                                <button
+                                    type="button"
+                                    className="btn-card-retry"
+                                    onClick={onRetryAccount}
+                                >
+                                    Retry check
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default ResultChecker;
