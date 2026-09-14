@@ -3,9 +3,11 @@ import com.meroshare.backend.dto.AuthResponse;
 import com.meroshare.backend.dto.DeleteAccountRequest;
 import com.meroshare.backend.dto.EmailChangeConfirmRequest;
 import com.meroshare.backend.dto.EmailChangeRequest;
+import com.meroshare.backend.dto.ForgotPasswordRequest;
 import com.meroshare.backend.dto.LoginRequest;
 import com.meroshare.backend.dto.OtpRequest;
 import com.meroshare.backend.dto.RegisterRequest;
+import com.meroshare.backend.dto.ResetPasswordRequest;
 import com.meroshare.backend.dto.ResendOtpRequest;
 import com.meroshare.backend.dto.UpdatePasswordRequest;
 import com.meroshare.backend.dto.UpdateUsernameRequest;
@@ -35,6 +37,9 @@ public class AuthController {
 
     @Value("${app.cookie.secure:true}")
     private boolean cookieSecure;
+
+    @Value("${app.cookie.cross-site:false}")
+    private boolean crossSiteCookie;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -71,6 +76,19 @@ public class AuthController {
         authService.resendOtp(request.getEmail());
         return ResponseEntity.ok("A new verification code has been sent.");
     }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<String> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        authService.requestForgotPassword(request.getEmail());
+        return ResponseEntity.ok("A password reset verification code has been sent to your email.");
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<String> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request.getEmail(), request.getCode(), request.getNewPassword());
+        return ResponseEntity.ok("Password has been reset successfully. You can now log in.");
+    }
+
     // Updates password for the logged in user
     @PatchMapping("/password")
     public ResponseEntity<String> updatePassword(
@@ -128,10 +146,13 @@ public class AuthController {
     }
 
     private ResponseCookie buildRefreshCookie(String value, Duration ttl) {
+        boolean allowCrossSiteNone = crossSiteCookie && cookieSecure;
+        String sameSite = allowCrossSiteNone ? "None" : "Lax";
+
         return ResponseCookie.from(REFRESH_COOKIE_NAME, value)
                 .httpOnly(true)
                 .secure(cookieSecure)
-                .sameSite(cookieSecure ? "None" : "Lax")
+                .sameSite(sameSite)
                 .path("/api/auth")
                 .maxAge(ttl)
                 .build();
