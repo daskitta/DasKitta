@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AccountProvider } from "./context/AccountContext";
@@ -8,6 +8,33 @@ import { NotificationProvider } from "./context/NotificationContext";
 import AccountSync from "./components/AccountSync";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
+
+const OFFLINE_TOAST_ID = "network-status";
+
+// tells the user when the connection drops or comes back, useful in a PWA on mobile data
+const useNetworkStatusToast = () => {
+    useEffect(() => {
+        const handleOffline = () => {
+            toast.error("You're offline. Some actions won't work until you reconnect.", {
+                id: OFFLINE_TOAST_ID,
+                duration: Infinity,
+            });
+        };
+        const handleOnline = () => {
+            toast.success("Back online", { id: OFFLINE_TOAST_ID, duration: 2500 });
+        };
+
+        window.addEventListener("offline", handleOffline);
+        window.addEventListener("online", handleOnline);
+
+        if (!navigator.onLine) handleOffline();
+
+        return () => {
+            window.removeEventListener("offline", handleOffline);
+            window.removeEventListener("online", handleOnline);
+        };
+    }, []);
+};
 
 // route pages are loaded on demand so first load only ships what is needed
 const PrivacyPolicy    = lazy(() => import("./pages/Legal/PrivacyPolicy.jsx"));
@@ -37,6 +64,7 @@ const PageLoader = () => (
         justifyContent: "center",
         background: "var(--bg)",
     }}>
+        {/* uses the global spin keyframe defined in index.css */}
         <svg
             width="20" height="20" viewBox="0 0 24 24" fill="none"
             stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round"
@@ -44,13 +72,18 @@ const PageLoader = () => (
         >
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
         </svg>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
 );
 
 const AppContent = () => {
     const location = useLocation();
     const background = location.state?.background;
+
+    useNetworkStatusToast();
+
+    const routeLocation = background || location;
+    // top-level segment only, so nested settings sub-routes don't re-trigger a full page fade
+    const routeKey = routeLocation.pathname.split("/")[1] || "home";
 
     return (
         <>
@@ -73,38 +106,41 @@ const AppContent = () => {
             />
 
             <Suspense fallback={<PageLoader />}>
-                <Routes location={background || location}>
-                    <Route path="/"                   element={<ErrorBoundary><Home /></ErrorBoundary>} />
-                    <Route path="/login"              element={<ErrorBoundary><Auth /></ErrorBoundary>} />
-                    <Route path="/register"           element={<ErrorBoundary><Auth /></ErrorBoundary>} />
-                    <Route path="/ipo/result"         element={<ErrorBoundary><ResultChecker /></ErrorBoundary>} />
-                    <Route path="/nepse"              element={<ErrorBoundary><Nepse /></ErrorBoundary>} />
-                    <Route path="/nepse/company/:symbol" element={<ErrorBoundary><CompanyDetail /></ErrorBoundary>} />
-                    <Route path="/privacy" element={<ErrorBoundary><PrivacyPolicy /></ErrorBoundary>} />
-                    <Route path="/terms" element={<ErrorBoundary><TermsOfService /></ErrorBoundary>} />
-                    <Route path="/disclaimer" element={<ErrorBoundary><Disclaimer /></ErrorBoundary>} />
-                    <Route path="/settings" element={
-                        <ErrorBoundary><ProtectedRoute><Settings /></ProtectedRoute></ErrorBoundary>
-                    }>
-                        <Route index element={<ProfileSettings />} />
-                        <Route path="accounts" element={<AccountsSettings />} />
-                        <Route path="accounts/add" element={<AddAccountSettings />} />
-                        <Route path="accounts/:id/info" element={<AccountInfo />} />
-                    </Route>
-                    <Route path="/dashboard" element={
-                        <ErrorBoundary><ProtectedRoute><Dashboard /></ProtectedRoute></ErrorBoundary>
-                    } />
-                    <Route path="/ipo/apply" element={
-                        <ErrorBoundary><ProtectedRoute><IPOApply /></ProtectedRoute></ErrorBoundary>
-                    } />
-                    <Route path="/history" element={
-                        <ErrorBoundary><ProtectedRoute><History /></ProtectedRoute></ErrorBoundary>
-                    } />
-                    <Route path="/portfolio" element={
-                        <ErrorBoundary><ProtectedRoute><Portfolio /></ProtectedRoute></ErrorBoundary>
-                    } />
-                    <Route path="*" element={<NotFound />} />
-                </Routes>
+                {/* re-keyed per top-level page so route changes get a short fade */}
+                <div className="route-fade" key={routeKey}>
+                    <Routes location={background || location}>
+                        <Route path="/"                   element={<ErrorBoundary><Home /></ErrorBoundary>} />
+                        <Route path="/login"              element={<ErrorBoundary><Auth /></ErrorBoundary>} />
+                        <Route path="/register"           element={<ErrorBoundary><Auth /></ErrorBoundary>} />
+                        <Route path="/ipo/result"         element={<ErrorBoundary><ResultChecker /></ErrorBoundary>} />
+                        <Route path="/nepse"              element={<ErrorBoundary><Nepse /></ErrorBoundary>} />
+                        <Route path="/nepse/company/:symbol" element={<ErrorBoundary><CompanyDetail /></ErrorBoundary>} />
+                        <Route path="/privacy" element={<ErrorBoundary><PrivacyPolicy /></ErrorBoundary>} />
+                        <Route path="/terms" element={<ErrorBoundary><TermsOfService /></ErrorBoundary>} />
+                        <Route path="/disclaimer" element={<ErrorBoundary><Disclaimer /></ErrorBoundary>} />
+                        <Route path="/settings" element={
+                            <ErrorBoundary><ProtectedRoute><Settings /></ProtectedRoute></ErrorBoundary>
+                        }>
+                            <Route index element={<ProfileSettings />} />
+                            <Route path="accounts" element={<AccountsSettings />} />
+                            <Route path="accounts/add" element={<AddAccountSettings />} />
+                            <Route path="accounts/:id/info" element={<AccountInfo />} />
+                        </Route>
+                        <Route path="/dashboard" element={
+                            <ErrorBoundary><ProtectedRoute><Dashboard /></ProtectedRoute></ErrorBoundary>
+                        } />
+                        <Route path="/ipo/apply" element={
+                            <ErrorBoundary><ProtectedRoute><IPOApply /></ProtectedRoute></ErrorBoundary>
+                        } />
+                        <Route path="/history" element={
+                            <ErrorBoundary><ProtectedRoute><History /></ProtectedRoute></ErrorBoundary>
+                        } />
+                        <Route path="/portfolio" element={
+                            <ErrorBoundary><ProtectedRoute><Portfolio /></ProtectedRoute></ErrorBoundary>
+                        } />
+                        <Route path="*" element={<NotFound />} />
+                    </Routes>
+                </div>
             </Suspense>
 
             {/* Render modal auth overlay above the current page */}
